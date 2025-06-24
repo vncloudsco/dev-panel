@@ -25,9 +25,9 @@ apt-get update && apt-get install -y \
     curl
 
 # Configuration
-readonly UPDATE_LINK="https://tinyactive.github.io/panel/update"
+readonly UPDATE_LINK="https://vncloudsco.github.io/dev-panel/update"
 readonly MODULE_PATH="/usr/share/nginx_module"
-readonly MODULES_LINK="https://tinyactive.github.io/panel/modules"
+readonly MODULES_LINK="https://vncloudsco.github.io/dev-panel/modules"
 
 # Create module directory
 mkdir -p "${MODULE_PATH}"

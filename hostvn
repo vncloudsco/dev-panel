@@ -27,8 +27,8 @@ IPADDRESS=$(curl -s https://ifconfig.me/ip)
 DIR=$(pwd)
 BASH_DIR="/var/hostvn"
 GITHUB_RAW_LINK="https://raw.githubusercontent.com"
-EXT_LINK="https://tinyactive.github.io/panel"
-UPDATE_LINK="https://tinyactive.github.io/panel/update"
+EXT_LINK="https://vncloudsco.github.io/dev-panel"
+UPDATE_LINK="https://vncloudsco.github.io/dev-panel/update"
 FILE_INFO="${BASH_DIR}/.hostvn.conf"
 HOSTNAME=$(hostname)
 PHP2_RELEASE="no"
@@ -413,8 +413,8 @@ check_duplicate_php() {
 install_nginx(){
     apt-get install build-essential zlib1g-dev libpcre3 libpcre3-dev unzip uuid-dev -y
     apt autoremove -y
-    UPDATE_LINK="https://tinyactive.github.io/panel/update"
-    MODULES_LINK="https://tinyactive.github.io/panel/modules"
+    UPDATE_LINK="https://vncloudsco.github.io/dev-panel/update"
+    MODULES_LINK="https://vncloudsco.github.io/dev-panel/modules"
     MODULE_PATH="/usr/share/nginx_module"
     mkdir -p "${MODULE_PATH}"
     NGINX_VERSION=$(curl -s ${UPDATE_LINK}/version | grep "nginx_version=" | cut -f2 -d'=')

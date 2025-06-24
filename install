@@ -18,7 +18,7 @@ NC='\033[0m'
 
 OS=$(grep -oP '(?<=^ID=).+' /etc/os-release | tr -d '"')
 
-SCRIPT_LINK="https://tinyactive.github.io/panel/${OS}"
+SCRIPT_LINK="https://vncloudsco.github.io/dev-panel/${OS}"
 OS_LIST="ubuntu debian"
 RAM_TOTAL=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
 LOW_RAM='400000'
