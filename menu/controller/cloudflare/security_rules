@@ -1,0 +1,193 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+    clear
+fi
+
+echo "========================================"
+echo "     Security Rules (IP/Country Block)  "
+echo "========================================"
+echo ""
+
+# Get list of domains from Cloudflare
+DOMAINS=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_domains)
+if [ $? -ne 0 ]; then
+    echo "Failed to get domains from Cloudflare. Please check your API key."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# If no domains found
+if [ -z "$DOMAINS" ]; then
+    echo "No domains found in your Cloudflare account."
+    echo "Please add a domain first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Display domains
+echo "Select a domain to manage security rules:"
+echo ""
+i=1
+for domain in $DOMAINS; do
+    echo "$i. $domain"
+    i=$((i+1))
+done
+echo ""
+
+read -r -p "Enter domain number: " DOMAIN_NUM
+
+# Validate input
+if ! [[ "$DOMAIN_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input. Please enter a number."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Get selected domain
+i=1
+for domain in $DOMAINS; do
+    if [ "$i" -eq "$DOMAIN_NUM" ]; then
+        SELECTED_DOMAIN=$domain
+        break
+    fi
+    i=$((i+1))
+done
+
+if [ -z "$SELECTED_DOMAIN" ]; then
+    echo "Invalid domain selection."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Show security rules menu
+CHOICE=1
+
+while [ "$CHOICE" != "0" ]
+do
+    clear
+    echo "========================================"
+    echo "  Security Rules for $SELECTED_DOMAIN   "
+    echo "========================================"
+    echo ""
+    echo "1. Block IP Address"
+    echo "2. Block Country"
+    echo "3. List Security Rules"
+    echo "4. Delete Security Rule"
+    echo "0. Back"
+    echo "========================================"
+    read -r -p "Enter your choice: " CHOICE
+
+    case $CHOICE in
+        1)
+            clear
+            echo "Block IP Address for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo ""
+            read -r -p "Enter IP address to block (e.g. 1.2.3.4): " IP_ADDRESS
+            
+            # Validate IP address format
+            if [[ ! "$IP_ADDRESS" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+                echo "Invalid IP address format. Please try again."
+                read -n 1 -s -r -p "Press any key to continue..."
+                continue
+            fi
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py block_ip "$SELECTED_DOMAIN" "$IP_ADDRESS")
+            
+            if [ $? -eq 0 ]; then
+                echo "IP address $IP_ADDRESS blocked successfully!"
+            else
+                echo "Failed to block IP: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        2)
+            clear
+            echo "Block Country for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "Enter country codes to block (ISO 3166-1 alpha-2 format)"
+            echo "Examples: US, RU, CN, etc."
+            echo "For multiple countries, separate with space (e.g., 'RU CN KP')"
+            echo ""
+            read -r -p "Enter country code(s): " COUNTRY_CODES
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py block_country "$SELECTED_DOMAIN" $COUNTRY_CODES)
+            
+            if [ $? -eq 0 ]; then
+                echo "Countries ($COUNTRY_CODES) blocked successfully!"
+            else
+                echo "Failed to block countries: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        3)
+            clear
+            echo "Security Rules for $SELECTED_DOMAIN"
+            echo "========================================"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_firewall_rules "$SELECTED_DOMAIN"
+            echo ""
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        4)
+            clear
+            echo "Delete Security Rule for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "First, let's see the current rules:"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_firewall_rules "$SELECTED_DOMAIN"
+            echo ""
+            read -r -p "Enter the ID of the rule to delete: " RULE_ID
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py delete_firewall_rule "$SELECTED_DOMAIN" "$RULE_ID")
+            
+            if [ $? -eq 0 ]; then
+                echo "Security rule deleted successfully!"
+            else
+                echo "Failed to delete security rule: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        0)
+            clear
+            ;;
+        *)
+            echo "Invalid option"
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+    esac
+done

@@ -1,0 +1,109 @@
+#!/bin/bash
+
+######################################################################
+#           Remove Telegram Backup Feature                          #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+source /var/hostvn/menu/validate/rule
+source /var/hostvn/menu/helpers/function
+
+_confirm_remove() {
+    clear
+    printf "%s\n" "${RED}XOA TINH NANG TELEGRAM BACKUP${NC}"
+    printf "%s\n" "${RED}==============================${NC}"
+    echo
+    printf "%s\n" "${YELLOW}Canh bao: Hanh dong nay se:${NC}"
+    printf "%s\n" "- Xoa tat ca cau hinh Telegram Backup"
+    printf "%s\n" "- Xoa tat ca cronjob Telegram Backup"
+    printf "%s\n" "- Xoa cac file lien quan"
+    echo
+    
+    while true; do
+        read -r -p "Ban co chac chan muon xoa tinh nang Telegram Backup? (y/n): " confirm_remove
+        echo
+        if [[ "${confirm_remove}" =~ ^([yY])$ || "${confirm_remove}" =~ ^([nN])$ ]]; then
+            break
+        else
+            printf "%s\n" "${RED}Gia tri khong chinh xac. Vui long nhap lai.${NC}"
+        fi
+    done
+    
+    if [[ "${confirm_remove}" =~ ^([yY])$ ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+_remove_telegram_backup() {
+    printf "%s\n" "${YELLOW}Dang xoa tinh nang Telegram Backup...${NC}"
+    
+    # Remove config files
+    if [ -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+        rm -f "/var/hostvn/telegram/.telegram_backup_config"
+        printf "%s\n" "${GREEN}Da xoa file cau hinh.${NC}"
+    fi
+    
+    # Remove cronjobs
+    crontab -l 2>/dev/null | grep -v "backup_telegram" | crontab - 2>/dev/null
+    printf "%s\n" "${GREEN}Da xoa cac cronjob Telegram.${NC}"
+    
+    # Remove cronjob scripts
+    if [ -f "/var/hostvn/menu/cronjob/backup_telegram_one" ]; then
+        rm -f "/var/hostvn/menu/cronjob/backup_telegram_one"
+        printf "%s\n" "${GREEN}Da xoa script backup_telegram_one.${NC}"
+    fi
+    
+    if [ -f "/var/hostvn/menu/cronjob/backup_telegram_all" ]; then
+        rm -f "/var/hostvn/menu/cronjob/backup_telegram_all"
+        printf "%s\n" "${GREEN}Da xoa script backup_telegram_all.${NC}"
+    fi
+    
+    # Remove controller files (optional - comment out if you want to keep them)
+    # if [ -f "/var/hostvn/menu/controller/backup/backup_telegram" ]; then
+    #     rm -f "/var/hostvn/menu/controller/backup/backup_telegram"
+    #     printf "%s\n" "${GREEN}Da xoa controller backup_telegram.${NC}"
+    # fi
+    
+    # if [ -f "/var/hostvn/menu/controller/backup/connect_telegram" ]; then
+    #     rm -f "/var/hostvn/menu/controller/backup/connect_telegram"
+    #     printf "%s\n" "${GREEN}Da xoa controller connect_telegram.${NC}"
+    # fi
+    
+    # if [ -f "/var/hostvn/menu/controller/cronjob/backup_telegram" ]; then
+    #     rm -f "/var/hostvn/menu/controller/cronjob/backup_telegram"
+    #     printf "%s\n" "${GREEN}Da xoa controller cronjob backup_telegram.${NC}"
+    # fi
+    
+    # Remove empty telegram directory if no other files
+    if [ -d "/var/hostvn/telegram" ]; then
+        if [ -z "$(ls -A /var/hostvn/telegram 2>/dev/null)" ]; then
+            rmdir /var/hostvn/telegram
+            printf "%s\n" "${GREEN}Da xoa thu muc telegram rong.${NC}"
+        fi
+    fi
+    
+    printf "%s\n" "${GREEN}Xoa tinh nang Telegram Backup hoan tat!${NC}"
+    echo
+    printf "%s\n" "${YELLOW}Luu y:${NC}"
+    printf "%s\n" "- Cac file backup da gui len Telegram van con tren Telegram"
+    printf "%s\n" "- De khoi phuc tinh nang, ban can cai dat lai"
+    printf "%s\n" "- Cac file controller van duoc giu lai de tien ich"
+}
+
+_run() {
+    if _confirm_remove; then
+        _remove_telegram_backup
+    else
+        clear
+        printf "%s\n" "${YELLOW}Huy thao tac xoa.${NC}"
+    fi
+}
+
+_run

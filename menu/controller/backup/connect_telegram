@@ -1,0 +1,175 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+source /var/hostvn/menu/validate/rule
+source /var/hostvn/menu/helpers/function
+
+_select_telegram_backup_action() {
+    clear
+    printf "%s\n" "Quan ly Telegram Backup"
+    PS3="Nhap vao lua chon cua ban [ 1 - 4 ]: "
+    options_telegram=("Cau hinh Telegram Backup" "Xem thong tin cau hinh" "Xoa cau hinh" "Cancel")
+    select opt_telegram in "${options_telegram[@]}"; do
+        case $opt_telegram in
+        "Cau hinh Telegram Backup")
+            action="setup"
+            break
+            ;;
+        "Xem thong tin cau hinh")
+            action="view"
+            break
+            ;;
+        "Xoa cau hinh")
+            action="delete"
+            break
+            ;;
+        "Cancel")
+            action="cancel"
+            break
+            ;;
+        *) printf "${RED}%s${NC}\n" "Lua chon cua ban khong chinh xac. Vui long chon lai." ;;
+        esac
+    done
+}
+
+_setup_telegram_backup() {
+    clear
+    printf "%s\n" "${YELLOW}Cau hinh Telegram Backup${NC}"
+    printf "%s\n" "${YELLOW}=============================${NC}"
+    echo
+    printf "%s\n" "Huong dan tao Bot Telegram:"
+    printf "%s\n" "1. Mo Telegram va tim @BotFather"
+    printf "%s\n" "2. Gui lenh: /newbot"
+    printf "%s\n" "3. Dat ten cho bot va username"
+    printf "%s\n" "4. Bot Token se duoc cung cap"
+    echo
+    printf "%s\n" "Huong dan lay Chat ID:"
+    printf "%s\n" "1. Gui tin nhan cho bot ban vua tao"
+    printf "%s\n" "2. Truy cap: https://api.telegram.org/bot<BOT_TOKEN>/getUpdates"
+    printf "%s\n" "3. Tim 'chat':{'id': YOUR_CHAT_ID}"
+    echo
+    
+    read -r -p "Nhap Telegram Bot Token: " TELEGRAM_BOT_TOKEN
+    read -r -p "Nhap Telegram Chat ID: " TELEGRAM_CHAT_ID
+    
+    if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+        ALERT=$(printf "%s\n" "${RED}Ban chua nhap day du thong tin.${NC}")
+        return
+    fi
+    
+    # Test connection
+    printf "%s\n" "${YELLOW}Dang kiem tra ket noi...${NC}"
+    TEST_URL="https://api-tele.tinyactive.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+    TEST_MESSAGE="✅ Test connection from HostVN Panel - $(date '+%d/%m/%Y %H:%M:%S')
+🖥 Server IP: $(curl -s http://ipinfo.io/ip || hostname -I | awk '{print $1}')
+📋 Telegram backup da duoc cau hinh thanh cong!"
+    
+    response=$(curl -s -X POST "${TEST_URL}" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${TEST_MESSAGE}" \
+        -d "disable_web_page_preview=true" \
+        -d "parse_mode=HTML")
+    
+    if echo "${response}" | grep -q '"ok":true'; then
+        mkdir -p /var/hostvn/telegram
+        cat > "/var/hostvn/telegram/.telegram_backup_config" << EOF
+telegram_bot_token=${TELEGRAM_BOT_TOKEN}
+telegram_chat_id=${TELEGRAM_CHAT_ID}
+setup_date=$(date '+%d/%m/%Y %H:%M:%S')
+EOF
+        chmod 600 "/var/hostvn/telegram/.telegram_backup_config"
+        ALERT=$(printf "%s\n" "${GREEN}Cau hinh Telegram Backup thanh cong!${NC}")
+    else
+        ALERT=$(printf "%s\n" "${RED}Loi ket noi Telegram. Vui long kiem tra lai Bot Token va Chat ID.${NC}")
+    fi
+}
+
+_view_telegram_config() {
+    if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+        ALERT=$(printf "%s\n" "${RED}Chua cau hinh Telegram Backup.${NC}")
+        return
+    fi
+    
+    TELEGRAM_BOT_TOKEN=$(grep -w "telegram_bot_token" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    TELEGRAM_CHAT_ID=$(grep -w "telegram_chat_id" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    SETUP_DATE=$(grep -w "setup_date" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    
+    clear
+    printf "%s\n" "${GREEN}Thong tin cau hinh Telegram Backup:${NC}"
+    printf "%s\n" "=================================="
+    printf "%s\n" "Bot Token: ${TELEGRAM_BOT_TOKEN:0:20}..."
+    printf "%s\n" "Chat ID: ${TELEGRAM_CHAT_ID}"
+    printf "%s\n" "Ngay cau hinh: ${SETUP_DATE}"
+    echo
+    
+    # Test current connection
+    printf "%s\n" "${YELLOW}Kiem tra ket noi hien tai...${NC}"
+    TEST_URL="https://api-tele.tinyactive.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+    TEST_MESSAGE="🔍 Test connection - $(date '+%d/%m/%Y %H:%M:%S')"
+    
+    response=$(curl -s -X POST "${TEST_URL}" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${TEST_MESSAGE}" \
+        -d "disable_web_page_preview=true")
+    
+    if echo "${response}" | grep -q '"ok":true'; then
+        printf "%s\n" "${GREEN}Ket noi Telegram hoat dong binh thuong.${NC}"
+    else
+        printf "%s\n" "${RED}Ket noi Telegram co van de.${NC}"
+    fi
+}
+
+_delete_telegram_config() {
+    if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+        ALERT=$(printf "%s\n" "${RED}Chua cau hinh Telegram Backup.${NC}")
+        return
+    fi
+    
+    while true; do
+        read -r -p "Ban co chac chan muon xoa cau hinh Telegram Backup? (y/n): " confirm_delete
+        echo
+        if [[ "${confirm_delete}" =~ ^([yY])$ || "${confirm_delete}" =~ ^([nN])$ ]]; then
+            break
+        else
+            printf "%s\n" "${RED}Gia tri khong chinh xac. Vui long nhap lai.${NC}"
+        fi
+    done
+    
+    if [[ "${confirm_delete}" =~ ^([yY])$ ]]; then
+        rm -f "/var/hostvn/telegram/.telegram_backup_config"
+        ALERT=$(printf "%s\n" "${GREEN}Xoa cau hinh Telegram Backup thanh cong.${NC}")
+    else
+        ALERT=$(printf "%s\n" "${YELLOW}Huy thao tac xoa cau hinh.${NC}")
+    fi
+}
+
+_run() {
+    if [ "${action}" == "setup" ]; then
+        _setup_telegram_backup
+    elif [ "${action}" == "view" ]; then
+        _view_telegram_config
+    elif [ "${action}" == "delete" ]; then
+        _delete_telegram_config
+    else
+        clear
+        ALERT=$(printf "%s\n" "${RED}Huy hanh dong.${NC}")
+    fi
+    
+    clear
+    printf "%s\n" "${ALERT}"
+}
+
+ALERT=""
+action=""
+_select_telegram_backup_action
+_run
+menu_backup

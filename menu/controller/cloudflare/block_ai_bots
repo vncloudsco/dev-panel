@@ -1,0 +1,118 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+    clear
+fi
+
+echo "========================================"
+echo "          Block AI Bots                "
+echo "========================================"
+echo ""
+
+# Get list of domains from Cloudflare
+DOMAINS=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_domains)
+if [ $? -ne 0 ]; then
+    echo "Failed to get domains from Cloudflare. Please check your API key."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# If no domains found
+if [ -z "$DOMAINS" ]; then
+    echo "No domains found in your Cloudflare account."
+    echo "Please add a domain first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Display domains
+echo "Select a domain to configure AI Bot blocking:"
+echo ""
+i=1
+for domain in $DOMAINS; do
+    echo "$i. $domain"
+    i=$((i+1))
+done
+echo ""
+
+read -r -p "Enter domain number: " DOMAIN_NUM
+
+# Validate input
+if ! [[ "$DOMAIN_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input. Please enter a number."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Get selected domain
+i=1
+for domain in $DOMAINS; do
+    if [ "$i" -eq "$DOMAIN_NUM" ]; then
+        SELECTED_DOMAIN=$domain
+        break
+    fi
+    i=$((i+1))
+done
+
+if [ -z "$SELECTED_DOMAIN" ]; then
+    echo "Invalid domain selection."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+clear
+echo "Block AI Bots for $SELECTED_DOMAIN"
+echo "========================================"
+echo "This will create a firewall rule to block AI bots like ChatGPT, Google Bard, etc."
+echo "These bots can consume your content for training AI models."
+echo ""
+read -r -p "Do you want to block AI bots? (y/n): " BLOCK_CHOICE
+
+if [ "$BLOCK_CHOICE" = "y" ] || [ "$BLOCK_CHOICE" = "Y" ]; then
+    RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py block_ai_bots "$SELECTED_DOMAIN")
+    
+    if [ $? -eq 0 ]; then
+        echo "AI bots have been blocked successfully!"
+        echo "This rule will block known AI crawler user agents."
+    else
+        echo "Failed to block AI bots: $RESULT"
+    fi
+else
+    echo "Operation cancelled."
+fi
+
+echo ""
+read -n 1 -s -r -p "Press any key to continue..."
+clear

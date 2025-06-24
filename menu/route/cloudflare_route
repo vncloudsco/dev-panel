@@ -1,0 +1,55 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+source /var/hostvn/menu/route/cloudflare
+
+# Register cloudflare menu functions in parent route
+cloudflare_set_api(){
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+}
+
+cloudflare_add_domain(){
+    . /var/hostvn/menu/controller/cloudflare/add_domain
+}
+
+cloudflare_manage_dns(){
+    . /var/hostvn/menu/controller/cloudflare/manage_dns
+}
+
+cloudflare_security_rules(){
+    . /var/hostvn/menu/controller/cloudflare/security_rules
+}
+
+cloudflare_manage_cache(){
+    . /var/hostvn/menu/controller/cloudflare/manage_cache
+}
+
+cloudflare_block_ai_bots(){
+    . /var/hostvn/menu/controller/cloudflare/block_ai_bots
+}
+
+cloudflare_email_routing(){
+    . /var/hostvn/menu/controller/cloudflare/email_routing
+}
+
+cloudflare_turnstile(){
+    . /var/hostvn/menu/controller/cloudflare/turnstile
+}
+
+cloudflare_security_mode(){
+    . /var/hostvn/menu/controller/cloudflare/security_mode
+}
+
+# Add cloudflare menu to main menu
+menu_cloudflare(){
+    . /var/hostvn/menu/route/cloudflare
+}

@@ -1,0 +1,212 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+    clear
+fi
+
+echo "========================================"
+echo "        Manage DNS Records             "
+echo "========================================"
+echo ""
+
+# Get list of domains from Cloudflare
+DOMAINS=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_domains)
+if [ $? -ne 0 ]; then
+    echo "Failed to get domains from Cloudflare. Please check your API key."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# If no domains found
+if [ -z "$DOMAINS" ]; then
+    echo "No domains found in your Cloudflare account."
+    echo "Please add a domain first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Display domains
+echo "Select a domain to manage DNS records:"
+echo ""
+i=1
+for domain in $DOMAINS; do
+    echo "$i. $domain"
+    i=$((i+1))
+done
+echo ""
+
+read -r -p "Enter domain number: " DOMAIN_NUM
+
+# Validate input
+if ! [[ "$DOMAIN_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input. Please enter a number."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Get selected domain
+i=1
+for domain in $DOMAINS; do
+    if [ "$i" -eq "$DOMAIN_NUM" ]; then
+        SELECTED_DOMAIN=$domain
+        break
+    fi
+    i=$((i+1))
+done
+
+if [ -z "$SELECTED_DOMAIN" ]; then
+    echo "Invalid domain selection."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Show DNS management menu
+CHOICE=1
+
+while [ "$CHOICE" != "0" ]
+do
+    clear
+    echo "========================================"
+    echo "     DNS Records for $SELECTED_DOMAIN    "
+    echo "========================================"
+    echo ""
+    echo "1. Add DNS Record"
+    echo "2. List DNS Records"
+    echo "3. Delete DNS Record"
+    echo "4. Add A Record for VPS"
+    echo "0. Back"
+    echo "========================================"
+    read -r -p "Enter your choice: " CHOICE
+
+    case $CHOICE in
+        1)
+            clear
+            echo "Add DNS Record for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "Record Types: A, AAAA, CNAME, MX, TXT, etc."
+            echo ""
+            read -r -p "Enter record type: " RECORD_TYPE
+            read -r -p "Enter record name (@ for root, subdomain for subdomain): " RECORD_NAME
+            read -r -p "Enter record content (e.g. IP address): " RECORD_CONTENT
+            read -r -p "Enable Cloudflare proxy? (y/n): " PROXY_CHOICE
+            
+            if [ "$PROXY_CHOICE" = "y" ] || [ "$PROXY_CHOICE" = "Y" ]; then
+                PROXIED="true"
+            else
+                PROXIED="false"
+            fi
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py add_dns_record "$SELECTED_DOMAIN" "$RECORD_TYPE" "$RECORD_NAME" "$RECORD_CONTENT" "$PROXIED")
+            
+            if [ $? -eq 0 ]; then
+                echo "DNS record added successfully!"
+            else
+                echo "Failed to add DNS record: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        2)
+            clear
+            echo "DNS Records for $SELECTED_DOMAIN"
+            echo "========================================"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_dns_records "$SELECTED_DOMAIN"
+            echo ""
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        3)
+            clear
+            echo "Delete DNS Record for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "First, let's see the current records:"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_dns_records "$SELECTED_DOMAIN"
+            echo ""
+            read -r -p "Enter the ID of the record to delete: " RECORD_ID
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py delete_dns_record "$SELECTED_DOMAIN" "$RECORD_ID")
+            
+            if [ $? -eq 0 ]; then
+                echo "DNS record deleted successfully!"
+            else
+                echo "Failed to delete DNS record: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        4)
+            clear
+            echo "Add A Record for VPS - $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "This will add an A record pointing to this server's IP address."
+            echo ""
+            # Get current server IP
+            SERVER_IP=$(curl -s https://ifconfig.me/ip)
+            
+            read -r -p "Enter subdomain (leave empty for root domain): " SUBDOMAIN
+            
+            if [ -z "$SUBDOMAIN" ]; then
+                RECORD_NAME="@"
+            else
+                RECORD_NAME="$SUBDOMAIN"
+            fi
+            
+            read -r -p "Enable Cloudflare proxy? (y/n): " PROXY_CHOICE
+            
+            if [ "$PROXY_CHOICE" = "y" ] || [ "$PROXY_CHOICE" = "Y" ]; then
+                PROXIED="true"
+            else
+                PROXIED="false"
+            fi
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py add_dns_record "$SELECTED_DOMAIN" "A" "$RECORD_NAME" "$SERVER_IP" "$PROXIED")
+            
+            if [ $? -eq 0 ]; then
+                echo "DNS A record added successfully!"
+                echo "IP Address: $SERVER_IP"
+            else
+                echo "Failed to add DNS record: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        0)
+            clear
+            ;;
+        *)
+            echo "Invalid option"
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+    esac
+done

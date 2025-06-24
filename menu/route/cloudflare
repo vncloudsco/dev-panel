@@ -1,0 +1,50 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+CHOICE=1
+
+printf "%s========================================%s\n" "${GREEN}" "${NC}"
+printf "%s          Cloudflare Management         %s\n" "${GREEN}" "${NC}"
+printf "%s========================================%s\n" "${GREEN}" "${NC}"
+
+while [ "${CHOICE}" != "0" ]
+do
+    printf "%s1. Set Cloudflare API Key%s\n" "${GREEN}" "${NC}"
+    printf "%s2. Add domain to Cloudflare%s\n" "${GREEN}" "${NC}"
+    printf "%s3. Manage DNS Records%s\n" "${GREEN}" "${NC}"
+    printf "%s4. Block IP/Country (Security Rules)%s\n" "${GREEN}" "${NC}"
+    printf "%s5. Manage Cache%s\n" "${GREEN}" "${NC}"
+    printf "%s6. Block AI Bots%s\n" "${GREEN}" "${NC}"
+    printf "%s7. Email Routing%s\n" "${GREEN}" "${NC}"
+    printf "%s8. Turnstile Management%s\n" "${GREEN}" "${NC}"
+    printf "%s9. Security Mode (Attack/Development Mode)%s\n" "${GREEN}" "${NC}"
+    printf "%s========================================%s\n" "${GREEN}" "${NC}"
+    read -r -p " ${SELECT_OPTION} " CHOICE
+    if [ -z "${CHOICE}" ]
+    then
+        CHOICE=1
+        continue
+    fi
+    case ${CHOICE} in
+        1) clear; cloudflare_set_api ;;
+        2) clear; cloudflare_add_domain ;;
+        3) clear; cloudflare_manage_dns ;;
+        4) clear; cloudflare_security_rules ;;
+        5) clear; cloudflare_manage_cache ;;
+        6) clear; cloudflare_block_ai_bots ;;
+        7) clear; cloudflare_email_routing ;;
+        8) clear; cloudflare_turnstile ;;
+        9) clear; cloudflare_security_mode ;;
+        0) clear; menu_primary ;;
+        *) clear; printf "%s\n" "${RED}${WRONG_OPTION}${NC}";;
+    esac
+done

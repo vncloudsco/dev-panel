@@ -1,0 +1,277 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+source /var/hostvn/menu/validate/rule
+source /var/hostvn/menu/helpers/function
+
+_select_type() {
+    echo "Lua chon kieu backup Telegram?"
+    PS3='Nhap lua chon cua ban (1-3): '
+    options=("Backup theo ten mien" "Backup toan bo ten mien" "Huy tao cronjob")
+    select opt in "${options[@]}"; do
+        case $opt in
+        "Backup theo ten mien")
+            type="one"
+            break
+            ;;
+        "Backup toan bo ten mien")
+            type="all"
+            break
+            ;;
+        "Huy tao cronjob")
+            type="0"
+            break
+            ;;
+        *) printf "${RED}%s${NC}\n" "Lua chon cua ban khong chinh xac. Vui long chon lai." ;;
+        esac
+    done
+}
+
+_select_time() {
+    echo "Lua chon thoi gian backup?"
+    PS3='Nhap lua chon cua ban (1-5): '
+    options=("Backup 1 lan/ngay" "Backup 1 lan/tuan" "Backup 1 lan/thang" "Backup 1 lan/nam" "Huy tao cronjob")
+    select opt in "${options[@]}"; do
+        case $opt in
+        "Backup 1 lan/ngay") time="@daily"; break;;
+        "Backup 1 lan/tuan") time="@weekly"; break;;
+        "Backup 1 lan/thang") time="@monthly"; break;;
+        "Backup 1 lan/nam") time="@yearly"; break;;
+        "Huy tao cronjob") time="0"; break;;
+        *) printf "${RED}%s${NC}\n" "Lua chon cua ban khong chinh xac. Vui long chon lai." ;;
+        esac
+    done
+}
+
+_set_backup_type() {
+    echo "Lua chon loai backup?"
+    PS3='Nhap lua chon cua ban (1-4): '
+    backup_types=("Full (Source + Database)" "Source code only" "Database only" "Huy")
+    select opt_backup in "${backup_types[@]}"; do
+        case $opt_backup in
+        "Full (Source + Database)") backup_type="full"; break;;
+        "Source code only") backup_type="source"; break;;
+        "Database only") backup_type="database"; break;;
+        "Huy") backup_type="0"; break;;
+        *) printf "${RED}%s${NC}\n" "Lua chon cua ban khong chinh xac. Vui long chon lai." ;;
+        esac
+    done
+}
+
+_create_cron_backup_one() {
+    cat > "/var/hostvn/menu/cronjob/backup_telegram_one" << EOF
+#!/bin/bash
+
+######################################################################
+#           Auto Backup to Telegram - Single Domain                 #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+######################################################################
+
+source /var/hostvn/.hostvn.conf
+source /var/hostvn/menu/helpers/variable_common
+source /var/hostvn/menu/controller/backup/backup_telegram
+
+domain="${domain}"
+backup_type="${backup_type}"
+
+# Check if Telegram is configured
+if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+    echo "Telegram backup not configured. Skipping backup for \${domain}"
+    exit 1
+fi
+
+# Check if domain still exists
+if [ ! -f "\${USER_DIR}/.\${domain}.conf" ]; then
+    echo "Domain \${domain} no longer exists. Removing cron job."
+    # Remove this cron job
+    crontab -l | grep -v "backup_telegram_one" | crontab -
+    rm -f "/var/hostvn/menu/cronjob/backup_telegram_one"
+    exit 1
+fi
+
+# Run backup
+if _run_telegram_backup "\${domain}" "\${backup_type}"; then
+    echo "Telegram backup completed successfully for \${domain}"
+else
+    echo "Telegram backup failed for \${domain}"
+fi
+EOF
+
+    chmod +x "/var/hostvn/menu/cronjob/backup_telegram_one"
+    
+    # Add to crontab
+    cron_exists=$(crontab -l | grep -w 'backup_telegram_one')
+    if [ -z "${cron_exists}" ]; then
+        crontab -l > telegram_backup_one
+        echo "${time} bash /var/hostvn/menu/cronjob/backup_telegram_one >/dev/null 2>&1" >> telegram_backup_one
+        crontab telegram_backup_one
+        rm -f telegram_backup_one
+    fi
+}
+
+_create_cron_backup_all() {
+    cat > "/var/hostvn/menu/cronjob/backup_telegram_all" << EOF
+#!/bin/bash
+
+######################################################################
+#           Auto Backup to Telegram - All Domains                   #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+######################################################################
+
+source /var/hostvn/.hostvn.conf
+source /var/hostvn/menu/helpers/variable_common
+source /var/hostvn/menu/controller/backup/backup_telegram
+
+backup_type="${backup_type}"
+
+# Check if Telegram is configured
+if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+    echo "Telegram backup not configured. Skipping backup."
+    exit 1
+fi
+
+# Backup all domains
+for users in /home/*; do
+    if [[ -d "\${users}" ]]; then
+        user=\${users##*/}
+        for domains in /home/"\${user}"/*; do
+            if [[ -d "\${domains}" ]]; then
+                domain=\${domains##*/}
+                if [[ -d "/home/\${user}/\${domain}/public_html" && -f "\${USER_DIR}/.\${domain}.conf" ]]; then
+                    echo "Starting Telegram backup for domain: \${domain}"
+                    if _run_telegram_backup "\${domain}" "\${backup_type}"; then
+                        echo "Telegram backup completed successfully for \${domain}"
+                    else
+                        echo "Telegram backup failed for \${domain}"
+                    fi
+                    # Add delay between backups to avoid overwhelming Telegram API
+                    sleep 30
+                fi
+            fi
+        done
+    fi
+done
+EOF
+
+    chmod +x "/var/hostvn/menu/cronjob/backup_telegram_all"
+    
+    # Add to crontab
+    cron_exists=$(crontab -l | grep -w 'backup_telegram_all')
+    if [ -z "${cron_exists}" ]; then
+        crontab -l > telegram_backup_all
+        echo "${time} bash /var/hostvn/menu/cronjob/backup_telegram_all >/dev/null 2>&1" >> telegram_backup_all
+        crontab telegram_backup_all
+        rm -f telegram_backup_all
+    fi
+}
+
+_backup_one() {
+    _select_domain
+    if [[ -z "${domain}" && -z "${ALERT}" ]]; then
+        clear
+        printf "%s\n" "${RED}Ban da chon huy thao tac.${NC}"
+    else
+        if [ -z "${ALERT}" ]; then
+            _select_time
+            if [ "${time}" == "0" ]; then
+                clear
+                printf "%s\n" "${RED}Huy tao cronjob.${NC}"
+            else
+                _set_backup_type
+                if [ "${backup_type}" == "0" ]; then
+                    clear
+                    printf "%s\n" "${RED}Huy tao cronjob.${NC}"
+                else
+                    # Check if Telegram is configured
+                    if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+                        printf "%s\n" "${RED}Chua cau hinh Telegram Backup. Vui long cau hinh truoc.${NC}"
+                        return
+                    fi
+                    
+                    _create_cron_backup_one
+                    clear
+                    printf "%s\n" "${GREEN}Tao cronjob Telegram backup thanh cong.${NC}"
+                    printf "%s\n" "${GREEN}Domain: ${domain}${NC}"
+                    printf "%s\n" "${GREEN}Backup type: ${backup_type}${NC}"
+                    printf "%s\n" "${GREEN}Schedule: ${time}${NC}"
+                fi
+            fi
+        else
+            clear
+            printf "%s\n" "${ALERT}"
+        fi
+    fi
+}
+
+_backup_all() {
+    _select_time
+    if [ "${time}" == "0" ]; then
+        clear
+        printf "%s\n" "${RED}Huy tao cronjob.${NC}"
+    else
+        _set_backup_type
+        if [ "${backup_type}" == "0" ]; then
+            clear
+            printf "%s\n" "${RED}Huy tao cronjob.${NC}"
+        else
+            # Check if Telegram is configured
+            if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+                printf "%s\n" "${RED}Chua cau hinh Telegram Backup. Vui long cau hinh truoc.${NC}"
+                return
+            fi
+            
+            _create_cron_backup_all
+            clear
+            printf "%s\n" "${GREEN}Tao cronjob Telegram backup cho tat ca domain thanh cong.${NC}"
+            printf "%s\n" "${GREEN}Backup type: ${backup_type}${NC}"
+            printf "%s\n" "${GREEN}Schedule: ${time}${NC}"
+        fi
+    fi
+}
+
+_run() {
+    _select_type
+    if [ "${type}" == "0" ]; then
+        clear
+        printf "%s\n" "${RED}Huy tao cronjob.${NC}"
+    else
+        if [ "${type}" == "one" ]; then
+            _backup_one
+        else
+            _backup_all
+        fi
+    fi
+}
+
+ALERT=""
+time=""
+backup_type=""
+domain=""
+type=""
+
+# Check if Telegram is configured before proceeding
+if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+    clear
+    printf "%s\n" "${RED}Chua cau hinh Telegram Backup.${NC}"
+    printf "%s\n" "${YELLOW}Vui long cau hinh Telegram Backup truoc khi tao cronjob.${NC}"
+    printf "%s\n" "${YELLOW}Go to: Backup/Restore Menu > Connect Telegram${NC}"
+else
+    _run
+fi
+
+menu_cronjob

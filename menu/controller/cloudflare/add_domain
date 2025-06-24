@@ -1,0 +1,66 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+fi
+
+echo "========================================"
+echo "        Add Domain to Cloudflare       "
+echo "========================================"
+echo ""
+echo "This will add a domain to your Cloudflare account."
+echo ""
+
+read -r -p "Enter the domain name to add to Cloudflare: " DOMAIN_NAME
+
+# Validate domain name format
+if [[ ! "$DOMAIN_NAME" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$ ]]; then
+    echo "Invalid domain format. Please enter a valid domain (e.g., example.com)."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Add domain using Python script
+RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py add_domain "$DOMAIN_NAME")
+EXIT_CODE=$?
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+    echo "Domain $DOMAIN_NAME added successfully to Cloudflare!"
+    echo "$RESULT" | grep -E "^\s+-\s+"
+    echo ""
+    echo "Please update your domain's nameservers to the ones listed above."
+else
+    echo "Failed to add domain: $RESULT"
+fi
+
+echo ""
+read -n 1 -s -r -p "Press any key to continue..."
+clear

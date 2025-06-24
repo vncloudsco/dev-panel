@@ -1,0 +1,209 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+    clear
+fi
+
+echo "========================================"
+echo "          Email Routing                "
+echo "========================================"
+echo ""
+
+# Get list of domains from Cloudflare
+DOMAINS=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_domains)
+if [ $? -ne 0 ]; then
+    echo "Failed to get domains from Cloudflare. Please check your API key."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# If no domains found
+if [ -z "$DOMAINS" ]; then
+    echo "No domains found in your Cloudflare account."
+    echo "Please add a domain first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Display domains
+echo "Select a domain to configure Email Routing:"
+echo ""
+i=1
+for domain in $DOMAINS; do
+    echo "$i. $domain"
+    i=$((i+1))
+done
+echo ""
+
+read -r -p "Enter domain number: " DOMAIN_NUM
+
+# Validate input
+if ! [[ "$DOMAIN_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input. Please enter a number."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Get selected domain
+i=1
+for domain in $DOMAINS; do
+    if [ "$i" -eq "$DOMAIN_NUM" ]; then
+        SELECTED_DOMAIN=$domain
+        break
+    fi
+    i=$((i+1))
+done
+
+if [ -z "$SELECTED_DOMAIN" ]; then
+    echo "Invalid domain selection."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Show Email Routing menu
+CHOICE=1
+
+while [ "$CHOICE" != "0" ]
+do
+    clear
+    echo "========================================"
+    echo "  Email Routing for $SELECTED_DOMAIN    "
+    echo "========================================"
+    echo ""
+    echo "1. Enable Email Routing"
+    echo "2. Add Email Routing Rule"
+    echo "3. List Email Routing Rules"
+    echo "4. Delete Email Routing Rule"
+    echo "5. Setup Catch-All Rule"
+    echo "0. Back"
+    echo "========================================"
+    read -r -p "Enter your choice: " CHOICE
+
+    case $CHOICE in
+        1)
+            clear
+            echo "Enable Email Routing for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "This will enable Cloudflare Email Routing for your domain."
+            echo ""
+            read -r -p "Do you want to enable Email Routing? (y/n): " ENABLE_CHOICE
+            
+            if [ "$ENABLE_CHOICE" = "y" ] || [ "$ENABLE_CHOICE" = "Y" ]; then
+                RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py enable_email_routing "$SELECTED_DOMAIN")
+                
+                if [ $? -eq 0 ]; then
+                    echo "Email Routing enabled successfully!"
+                    echo "Required MX and TXT records have been added to your domain."
+                else
+                    echo "Failed to enable Email Routing: $RESULT"
+                fi
+            else
+                echo "Operation cancelled."
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        2)
+            clear
+            echo "Add Email Routing Rule for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo ""
+            read -r -p "Enter email address or pattern (e.g., 'info@domain.com' or '*@domain.com'): " EMAIL_PATTERN
+            read -r -p "Forward to email address: " FORWARD_EMAIL
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py add_email_route "$SELECTED_DOMAIN" "$EMAIL_PATTERN" "$FORWARD_EMAIL")
+            
+            if [ $? -eq 0 ]; then
+                echo "Email routing rule added successfully!"
+            else
+                echo "Failed to add email routing rule: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        3)
+            clear
+            echo "Email Routing Rules for $SELECTED_DOMAIN"
+            echo "========================================"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_email_routes "$SELECTED_DOMAIN"
+            echo ""
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        4)
+            clear
+            echo "Delete Email Routing Rule for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "First, let's see the current rules:"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_email_routes "$SELECTED_DOMAIN"
+            echo ""
+            read -r -p "Enter the ID of the rule to delete: " RULE_ID
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py delete_email_route "$SELECTED_DOMAIN" "$RULE_ID")
+            
+            if [ $? -eq 0 ]; then
+                echo "Email routing rule deleted successfully!"
+            else
+                echo "Failed to delete email routing rule: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        5)
+            clear
+            echo "Setup Catch-All Rule for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "This will create a catch-all rule that forwards all emails to a specified address."
+            echo ""
+            read -r -p "Forward all emails to: " FORWARD_EMAIL
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py setup_catch_all "$SELECTED_DOMAIN" "$FORWARD_EMAIL")
+            
+            if [ $? -eq 0 ]; then
+                echo "Catch-all rule set up successfully!"
+            else
+                echo "Failed to set up catch-all rule: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        0)
+            clear
+            ;;
+        *)
+            echo "Invalid option"
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+    esac
+done

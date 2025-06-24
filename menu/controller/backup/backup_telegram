@@ -1,0 +1,364 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: TinyActive - Base On HOSTVN.VN Scripts      #
+#                  Website: https://github.com/TinyActive/panel      #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+source /var/hostvn/menu/validate/rule
+source /var/hostvn/menu/helpers/function
+
+_check_telegram_config() {
+    if [ ! -f "/var/hostvn/telegram/.telegram_backup_config" ]; then
+        return 1
+    fi
+    
+    TELEGRAM_BOT_TOKEN=$(grep -w "telegram_bot_token" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    TELEGRAM_CHAT_ID=$(grep -w "telegram_chat_id" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    
+    if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+        return 1
+    fi
+    
+    # Test if curl is available
+    if ! command -v curl &> /dev/null; then
+        printf "%s\n" "${RED}curl is not installed. Please install curl first.${NC}"
+        return 1
+    fi
+    
+    return 0
+}
+
+_setup_telegram_config() {
+    clear
+    printf "%s\n" "${YELLOW}Cau hinh Telegram Backup${NC}"
+    printf "%s\n" "${YELLOW}=============================${NC}"
+    echo
+    printf "%s\n" "Huong dan:"
+    printf "%s\n" "1. Tao bot Telegram: Gui tin nhan '/newbot' cho @BotFather"
+    printf "%s\n" "2. Lay Chat ID: Gui tin nhan cho bot roi truy cap:"
+    printf "%s\n" "   https://api-tele.tinyactive.com/bot<YOUR_BOT_TOKEN>/getUpdates"
+    echo
+    
+    read -r -p "Nhap Telegram Bot Token: " TELEGRAM_BOT_TOKEN
+    read -r -p "Nhap Telegram Chat ID: " TELEGRAM_CHAT_ID
+    
+    if [[ -z "${TELEGRAM_BOT_TOKEN}" || -z "${TELEGRAM_CHAT_ID}" ]]; then
+        printf "%s\n" "${RED}Ban chua nhap day du thong tin.${NC}"
+        return 1
+    fi
+    
+    # Test connection
+    printf "%s\n" "${YELLOW}Dang kiem tra ket noi...${NC}"
+    TEST_URL="https://api-tele.tinyactive.com/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+    TEST_MESSAGE="Test connection from HostVN Panel - $(date)"
+    
+    response=$(curl -s -X POST "${TEST_URL}" \
+        -d "chat_id=${TELEGRAM_CHAT_ID}" \
+        -d "text=${TEST_MESSAGE}" \
+        -d "disable_web_page_preview=true")
+    
+    if echo "${response}" | grep -q '"ok":true'; then
+        mkdir -p /var/hostvn/telegram
+        cat > "/var/hostvn/telegram/.telegram_backup_config" << EOF
+telegram_bot_token=${TELEGRAM_BOT_TOKEN}
+telegram_chat_id=${TELEGRAM_CHAT_ID}
+EOF
+        chmod 600 "/var/hostvn/telegram/.telegram_backup_config"
+        printf "%s\n" "${GREEN}Cau hinh Telegram thanh cong!${NC}"
+        return 0
+    else
+        printf "%s\n" "${RED}Loi ket noi Telegram. Vui long kiem tra lai thong tin.${NC}"
+        return 1
+    fi
+}
+
+_send_telegram_message() {
+    local message="$1"
+    local bot_token="$2"
+    local chat_id="$3"
+    
+    local response=$(curl -s -X POST "https://api-tele.tinyactive.com/bot${bot_token}/sendMessage" \
+        -d "chat_id=${chat_id}" \
+        -d "text=${message}" \
+        -d "disable_web_page_preview=true" \
+        -d "parse_mode=HTML")
+    
+    if echo "${response}" | grep -q '"ok":true'; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+_send_telegram_document() {
+    local file_path="$1"
+    local caption="$2"
+    local bot_token="$3"
+    local chat_id="$4"
+    
+    local response=$(curl -s -X POST "https://api-tele.tinyactive.com/bot${bot_token}/sendDocument" \
+        -F "chat_id=${chat_id}" \
+        -F "document=@${file_path}" \
+        -F "caption=${caption}")
+    
+    if echo "${response}" | grep -q '"ok":true'; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+_split_large_file() {
+    local file_path="$1"
+    local max_size_mb=1900  # 1.9GB to be safe (Telegram limit is 2GB)
+    local max_size_bytes=$((max_size_mb * 1024 * 1024))
+    
+    local file_size=$(stat -c%s "${file_path}" 2>/dev/null)
+    
+    if [ "${file_size}" -gt "${max_size_bytes}" ]; then
+        local file_dir=$(dirname "${file_path}")
+        local file_name=$(basename "${file_path}")
+        local base_name="${file_name%.*.*}"  # Remove .tar.gz
+        local extension="tar.gz"
+        
+        # Calculate size in GB for display
+        local size_gb=$((file_size / 1024 / 1024 / 1024))
+        local size_mb=$(((file_size / 1024 / 1024) % 1024))
+        
+        printf "%s\n" "${YELLOW}File qua lon (${size_gb}.${size_mb} GB), dang chia tach...${NC}"
+        
+        cd "${file_dir}"
+        split -b "${max_size_mb}M" "${file_name}" "${base_name}.part"
+        
+        # Rename parts with proper extensions
+        local part_counter=1
+        for part_file in "${base_name}".part*; do
+            if [ -f "${part_file}" ]; then
+                mv "${part_file}" "${base_name}.part${part_counter}.${extension}"
+                ((part_counter++))
+            fi
+        done
+        
+        rm -f "${file_name}"  # Remove original large file
+        return 0
+    fi
+    return 1
+}
+
+_create_backup_filename() {
+    local domain="$1"
+    local backup_type="$2"
+    local current_date=$(date '+%d-%m-%Y')  # Use dashes instead of slashes for filename
+    local timestamp=$(date '+%H%M%S')
+    
+    echo "${domain}-${current_date}-${timestamp}-${backup_type}.tar.gz"
+}
+
+_telegram_backup() {
+    local domain="$1"
+    local backup_type="$2"
+    
+    if ! _check_telegram_config; then
+        printf "%s\n" "${RED}Chua cau hinh Telegram. Dang cau hinh...${NC}"
+        if ! _setup_telegram_config; then
+            return 1
+        fi
+    fi
+    
+    # Load Telegram config
+    TELEGRAM_BOT_TOKEN=$(grep -w "telegram_bot_token" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    TELEGRAM_CHAT_ID=$(grep -w "telegram_chat_id" "/var/hostvn/telegram/.telegram_backup_config" | cut -f2 -d'=')
+    
+    local backup_dir="/tmp/telegram_backup_${RANDOM}"
+    mkdir -p "${backup_dir}"
+    
+    local backup_filename=$(_create_backup_filename "${domain}" "${backup_type}")
+    local backup_path="${backup_dir}/${backup_filename}"
+    
+    printf "%s\n" "${GREEN}Dang tao backup cho domain: ${domain}${NC}"
+    printf "%s\n" "${GREEN}Loai backup: ${backup_type}${NC}"
+    
+    # Create backup based on type
+    user=$(grep -w "username" "${USER_DIR}/.${domain}.conf" | cut -f2 -d'=')
+    db_name=$(grep -w "db_name" "${USER_DIR}/.${domain}.conf" | cut -f2 -d'=')
+    
+    cd "${backup_dir}"
+    
+    case "${backup_type}" in
+        "full")
+            printf "%s\n" "${YELLOW}Dang backup source code...${NC}"
+            _backup_source_telegram "${domain}" "${user}" "${backup_dir}"
+            
+            printf "%s\n" "${YELLOW}Dang backup database...${NC}"
+            _backup_database_telegram "${domain}" "${user}" "${db_name}" "${backup_dir}"
+            
+            printf "%s\n" "${YELLOW}Dang nen file...${NC}"
+            tar -czf "${backup_filename}" "${domain}"_source "${domain}"_database.sql
+            ;;
+        "source")
+            printf "%s\n" "${YELLOW}Dang backup source code...${NC}"
+            _backup_source_telegram "${domain}" "${user}" "${backup_dir}"
+            
+            printf "%s\n" "${YELLOW}Dang nen file...${NC}"
+            tar -czf "${backup_filename}" "${domain}"_source
+            ;;
+        "database")
+            printf "%s\n" "${YELLOW}Dang backup database...${NC}"
+            _backup_database_telegram "${domain}" "${user}" "${db_name}" "${backup_dir}"
+            
+            printf "%s\n" "${YELLOW}Dang nen file...${NC}"
+            tar -czf "${backup_filename}" "${domain}"_database.sql
+            ;;
+    esac
+    
+    if [ ! -f "${backup_path}" ]; then
+        printf "%s\n" "${RED}Loi khi tao backup file.${NC}"
+        rm -rf "${backup_dir}"
+        return 1
+    fi
+    
+    # Check if file needs to be split
+    local need_split=false
+    if _split_large_file "${backup_path}"; then
+        need_split=true
+    fi
+      # Send to Telegram
+    local server_ip=$(curl -s http://ipinfo.io/ip 2>/dev/null || hostname -I | awk '{print $1}')
+    local file_size_mb=$(($(stat -c%s "${backup_path}" 2>/dev/null || echo 0) / 1024 / 1024))
+    local backup_info="🗃 <b>Backup Complete</b>
+📋 <b>Domain:</b> ${domain}
+📦 <b>Type:</b> ${backup_type}
+💾 <b>Size:</b> ${file_size_mb} MB
+🗓 <b>Date:</b> $(date '+%d/%m/%Y %H:%M:%S')
+🖥 <b>Server:</b> ${server_ip}"
+    
+    _send_telegram_message "${backup_info}" "${TELEGRAM_BOT_TOKEN}" "${TELEGRAM_CHAT_ID}"
+      if [ "${need_split}" = true ]; then
+        printf "%s\n" "${YELLOW}Dang gui cac file da chia tach len Telegram...${NC}"
+        local part_count=1
+        local sent_parts=0
+        for part_file in "${backup_dir}"/*.part*.tar.gz; do
+            if [ -f "${part_file}" ]; then
+                local part_name=$(basename "${part_file}")
+                printf "%s\n" "${YELLOW}Dang gui part ${part_count}: ${part_name}${NC}"
+                
+                if _send_telegram_document "${part_file}" "Part ${part_count} - ${backup_filename}" "${TELEGRAM_BOT_TOKEN}" "${TELEGRAM_CHAT_ID}"; then
+                    ((sent_parts++))
+                    printf "%s\n" "${GREEN}Da gui part ${part_count} thanh cong.${NC}"
+                else
+                    printf "%s\n" "${RED}Loi khi gui part ${part_count}.${NC}"
+                fi
+                ((part_count++))
+                
+                # Add delay between uploads to avoid rate limiting
+                sleep 2
+            fi
+        done
+        printf "%s\n" "${GREEN}Da gui ${sent_parts}/${part_count} file len Telegram.${NC}"
+    else
+        printf "%s\n" "${YELLOW}Dang gui file backup len Telegram...${NC}"
+        if _send_telegram_document "${backup_path}" "${backup_filename}" "${TELEGRAM_BOT_TOKEN}" "${TELEGRAM_CHAT_ID}"; then
+            printf "%s\n" "${GREEN}Da gui backup len Telegram thanh cong.${NC}"
+        else
+            printf "%s\n" "${RED}Loi khi gui backup len Telegram.${NC}"
+            rm -rf "${backup_dir}"
+            return 1
+        fi
+    fi
+    
+    # Cleanup
+    rm -rf "${backup_dir}"
+    
+    return 0
+}
+
+_backup_source_telegram() {
+    local domain="$1"
+    local user="$2"
+    local backup_dir="$3"
+    
+    mkdir -p "${backup_dir}/${domain}_source"
+    
+    # Copy source files
+    if [[ -f "/home/${user}/${domain}/wp-config.php" && ! -f "/home/${user}/${domain}/public_html/wp-config.php" ]]; then
+        cp "/home/${user}/${domain}/wp-config.php" "/home/${user}/${domain}/public_html/wp-config.php"
+    fi
+    
+    cp -r "/home/${user}/${domain}/public_html" "${backup_dir}/${domain}_source/"
+    
+    # Remove cache directories to reduce size
+    if [ -d "${backup_dir}/${domain}_source/public_html/wp-content/cache" ]; then
+        rm -rf "${backup_dir}/${domain}_source/public_html/wp-content/cache"
+    fi
+    
+    if [ -d "${backup_dir}/${domain}_source/public_html/storage/framework/cache" ]; then
+        rm -rf "${backup_dir}/${domain}_source/public_html/storage/framework/cache"
+    fi
+    
+    if [ -d "${backup_dir}/${domain}_source/public_html/storage/framework/view" ]; then
+        rm -rf "${backup_dir}/${domain}_source/public_html/storage/framework/view"
+    fi
+    
+    # Cleanup wp-config.php if we copied it
+    if [[ -f "/home/${user}/${domain}/wp-config.php" && -f "/home/${user}/${domain}/public_html/wp-config.php" ]]; then
+        rm -f "/home/${user}/${domain}/public_html/wp-config.php"
+    fi
+}
+
+_backup_database_telegram() {
+    local domain="$1"
+    local user="$2"
+    local db_name="$3"
+    local backup_dir="$4"
+    
+    cd "${backup_dir}"
+    
+    # Check if it's a WordPress site
+    if [[ -f "/home/${user}/${domain}/public_html/wp-config.php" ]]; then
+        # Check if WP-CLI is installed
+        if ! command -v wp &> /dev/null; then
+            printf "%s\n" "${YELLOW}Installing WP-CLI...${NC}"
+            curl -O https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+            chmod +x wp-cli.phar
+            mv wp-cli.phar /usr/local/bin/wp
+            
+            # Install required PHP extensions if missing
+            if ! php -m | grep -q "mysqli"; then
+                apt-get update && apt-get install -y php-mysqli
+            fi
+            if ! php -m | grep -q "curl"; then
+                apt-get update && apt-get install -y php-curl
+            fi
+            if ! php -m | grep -q "mbstring"; then
+                apt-get update && apt-get install -y php-mbstring
+            fi
+        fi
+        
+        # Use WP-CLI to dump database
+        cd "/home/${user}/${domain}/public_html"
+        wp db export --allow-root --path="/home/${user}/${domain}/public_html" "${backup_dir}/${domain}_database.sql"
+    else
+        # Use mysqldump for non-WordPress sites
+        mysqldump -uadmin -p"${mysql_pwd}" "${db_name}" > "${backup_dir}/${domain}_database.sql"
+    fi
+}
+
+# Main execution function
+_run_telegram_backup() {
+    local domain="$1"
+    local backup_type="$2"
+    
+    if _telegram_backup "${domain}" "${backup_type}"; then
+        printf "%s\n" "${GREEN}Backup va gui len Telegram thanh cong!${NC}"
+        return 0
+    else
+        printf "%s\n" "${RED}Co loi xay ra trong qua trinh backup hoac gui len Telegram.${NC}"
+        return 1
+    fi
+}

@@ -1,0 +1,51 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+echo "========================================"
+echo "        Set Cloudflare API Key         "
+echo "========================================"
+echo ""
+echo "This will set or update your Cloudflare Global API Key."
+echo "It's required to have a Global API Key with full account permissions."
+echo ""
+
+read -r -p "Enter your Cloudflare email: " CF_EMAIL
+read -r -s -p "Enter your Cloudflare Global API Key: " CF_API_KEY
+echo ""
+
+# Validate the API key using Python
+RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py set_api "$CF_EMAIL" "$CF_API_KEY")
+
+if [[ $? -eq 0 ]]; then
+    echo "API key set successfully!"
+    echo "You can now use the Cloudflare management features."
+else
+    echo "Failed to set API key: $RESULT"
+    echo "Please check your credentials and try again."
+fi
+
+echo ""
+read -n 1 -s -r -p "Press any key to continue..."
+clear

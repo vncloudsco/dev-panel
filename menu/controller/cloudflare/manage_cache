@@ -1,0 +1,209 @@
+#!/bin/bash
+
+######################################################################
+#           Auto Install & Optimize LEMP Stack on Ubuntu             #
+#                                                                    #
+#                Author: Sanvv - HOSTVN Technical                    #
+#                  Website: https://hostvn.vn                        #
+#                                                                    #
+#              Please do not remove copyright. Thank!                #
+#  Please do not copy under any circumstance for commercial reason!  #
+######################################################################
+
+# Check if python3 is installed
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "Python 3 is required but not installed. Installing..."
+    apt-get update
+    apt-get install -y python3 python3-pip
+fi
+
+# Check if cloudflare module is installed
+if ! python3 -c "import CloudFlare" 2>/dev/null; then
+    echo "Installing Cloudflare Python module..."
+    pip3 install -r /var/hostvn/menu/python/requirements.txt
+fi
+
+# Check if API key is configured
+if [ ! -f "/var/hostvn/.cloudflare.conf" ]; then
+    echo "Cloudflare API key is not set. Please set your API key first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    . /var/hostvn/menu/controller/cloudflare/set_api_key
+    clear
+fi
+
+echo "========================================"
+echo "       Manage Cloudflare Cache         "
+echo "========================================"
+echo ""
+
+# Get list of domains from Cloudflare
+DOMAINS=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py list_domains)
+if [ $? -ne 0 ]; then
+    echo "Failed to get domains from Cloudflare. Please check your API key."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# If no domains found
+if [ -z "$DOMAINS" ]; then
+    echo "No domains found in your Cloudflare account."
+    echo "Please add a domain first."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Display domains
+echo "Select a domain to manage cache settings:"
+echo ""
+i=1
+for domain in $DOMAINS; do
+    echo "$i. $domain"
+    i=$((i+1))
+done
+echo ""
+
+read -r -p "Enter domain number: " DOMAIN_NUM
+
+# Validate input
+if ! [[ "$DOMAIN_NUM" =~ ^[0-9]+$ ]]; then
+    echo "Invalid input. Please enter a number."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Get selected domain
+i=1
+for domain in $DOMAINS; do
+    if [ "$i" -eq "$DOMAIN_NUM" ]; then
+        SELECTED_DOMAIN=$domain
+        break
+    fi
+    i=$((i+1))
+done
+
+if [ -z "$SELECTED_DOMAIN" ]; then
+    echo "Invalid domain selection."
+    read -n 1 -s -r -p "Press any key to continue..."
+    clear
+    exit 1
+fi
+
+# Show cache management menu
+CHOICE=1
+
+while [ "$CHOICE" != "0" ]
+do
+    clear
+    echo "========================================"
+    echo "  Cache Settings for $SELECTED_DOMAIN   "
+    echo "========================================"
+    echo ""
+    echo "1. Configure Cache Reserve"
+    echo "2. Configure Tiered Cache"
+    echo "3. Purge All Cached Content"
+    echo "4. View Current Cache Settings"
+    echo "0. Back"
+    echo "========================================"
+    read -r -p "Enter your choice: " CHOICE
+
+    case $CHOICE in
+        1)
+            clear
+            echo "Configure Cache Reserve for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "Cache Reserve provides additional caching layer for improved performance."
+            echo ""
+            read -r -p "Enable Cache Reserve? (y/n): " CACHE_CHOICE
+            
+            if [ "$CACHE_CHOICE" = "y" ] || [ "$CACHE_CHOICE" = "Y" ]; then
+                ENABLED=true
+            else
+                ENABLED=false
+            fi
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py configure_cache_reserve "$SELECTED_DOMAIN" "$ENABLED")
+            
+            if [ $? -eq 0 ]; then
+                if [ "$ENABLED" = true ]; then
+                    echo "Cache Reserve enabled successfully!"
+                else
+                    echo "Cache Reserve disabled successfully!"
+                fi
+            else
+                echo "Failed to configure Cache Reserve: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        2)
+            clear
+            echo "Configure Tiered Cache for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "Tiered Cache improves cache performance for visitors farther from origin."
+            echo ""
+            read -r -p "Enable Tiered Cache? (y/n): " CACHE_CHOICE
+            
+            if [ "$CACHE_CHOICE" = "y" ] || [ "$CACHE_CHOICE" = "Y" ]; then
+                ENABLED=true
+            else
+                ENABLED=false
+            fi
+            
+            RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py configure_tiered_cache "$SELECTED_DOMAIN" "$ENABLED")
+            
+            if [ $? -eq 0 ]; then
+                if [ "$ENABLED" = true ]; then
+                    echo "Tiered Cache enabled successfully!"
+                else
+                    echo "Tiered Cache disabled successfully!"
+                fi
+            else
+                echo "Failed to configure Tiered Cache: $RESULT"
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        3)
+            clear
+            echo "Purge All Cached Content for $SELECTED_DOMAIN"
+            echo "========================================"
+            echo "This will purge all cached content for your domain."
+            echo "This action cannot be undone."
+            echo ""
+            read -r -p "Are you sure? (y/n): " PURGE_CHOICE
+            
+            if [ "$PURGE_CHOICE" = "y" ] || [ "$PURGE_CHOICE" = "Y" ]; then
+                RESULT=$(python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py purge_cache "$SELECTED_DOMAIN")
+                
+                if [ $? -eq 0 ]; then
+                    echo "All cached content purged successfully!"
+                else
+                    echo "Failed to purge cache: $RESULT"
+                fi
+            else
+                echo "Operation cancelled."
+            fi
+            
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        4)
+            clear
+            echo "Current Cache Settings for $SELECTED_DOMAIN"
+            echo "========================================"
+            python3 /var/hostvn/menu/python/cloudflare/cloudflare_api.py get_cache_settings "$SELECTED_DOMAIN"
+            echo ""
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+        0)
+            clear
+            ;;
+        *)
+            echo "Invalid option"
+            read -n 1 -s -r -p "Press any key to continue..."
+            ;;
+    esac
+done
